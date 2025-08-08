@@ -28,7 +28,7 @@ httpx==0.28.1
 idna==3.10
 jiter==0.10.0
 lxml==6.0.0
-numpy @ file:///D:/bld/numpy_1707225570061/work/dist/numpy-1.26.4-cp310-cp310-win_amd64.whl#sha256=6761da75b1528684e6bf4dabdbdded9d1eb4d0e9b299482c7ce152cfb3155106
+numpy
 openai==1.99.5
 packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1745345660/work
 pdfminer.six==20231228

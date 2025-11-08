@@ -125,8 +125,17 @@ class DocumentIngestionService:
             List of clause dictionaries with metadata
         """
         try:
-            # Download document
-            temp_file_path = self.download_document(url)
+            # Determine if input is a URL or local file path
+            is_url = url.lower().startswith("http://") or url.lower().startswith("https://")
+            if is_url:
+                temp_file_path = self.download_document(url)
+                cleanup = True
+            else:
+                # Assume local file path (absolute or relative)
+                temp_file_path = url
+                if not os.path.exists(temp_file_path):
+                    raise Exception(f"Local file not found: {temp_file_path}")
+                cleanup = False
             
             try:
                 # Extract text
@@ -162,8 +171,8 @@ class DocumentIngestionService:
                 return clauses
                 
             finally:
-                # Clean up temporary file
-                if os.path.exists(temp_file_path):
+                # Clean up temporary downloaded file only if we created it
+                if 'cleanup' in locals() and cleanup and os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
                     
         except Exception as e:

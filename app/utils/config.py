@@ -16,6 +16,7 @@ class Config:
     FAISS_INDEX_PATH = "data/faiss_index.bin"
     METADATA_PATH = "data/metadata.pkl"
     CLAUSES_PATH = "data/clauses.json"
+    CLAUSE_GRAPH_PATH = "data/clause_graph.json"
 
     # Data directory
     DATA_DIR = "data"

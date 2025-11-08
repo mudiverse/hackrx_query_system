@@ -1,0 +1,7 @@
+document,mode,latency_s,avg_answer_len,nonempty_rate,http_code
+510604p.pdf,Vanilla,12.5932,1996.0,1.00,200
+510604p.pdf,CG-RAG,12.1636,1999.0,1.00,200
+BAJHLIP23020V012223.pdf,Vanilla,48.3573,1998.7,1.00,200
+BAJHLIP23020V012223.pdf,CG-RAG,56.9129,1996.3,1.00,200
+policy.pdf,Vanilla,30.5540,1998.3,1.00,200
+policy.pdf,CG-RAG,28.4223,1997.0,1.00,200

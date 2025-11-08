@@ -5,6 +5,7 @@ from app.services.ingest import DocumentIngestionService
 from app.services.embed import EmbeddingService
 from app.services.retrieve import RetrievalService
 from app.utils.config import Config
+from app.services.clause_graph import ClauseGraphService
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ def get_services():
     return {
         "ingest": DocumentIngestionService(),
         "embed": EmbeddingService(),
+        "graph": ClauseGraphService(),
         "retrieve": RetrievalService()
     }
 
@@ -27,7 +29,8 @@ def get_services():
 async def run_hackrx_query(
     request: HackRxRequest,
     services: dict = Depends(get_services),
-    authorization: str = Header(None, alias="Authorization")
+    authorization: str = Header(None, alias="Authorization"),
+    use_graph_header: str | None = Header(None, alias="X-Use-Graph")
 ):
     """
     Main endpoint for HackRx 6.0 clause retrieval system.
@@ -40,6 +43,7 @@ async def run_hackrx_query(
         
         ingest_service = services["ingest"]
         embed_service = services["embed"]
+        graph_service = services["graph"]
         retrieve_service = services["retrieve"]
         
         # Step 1: Process document and extract clauses
@@ -60,10 +64,22 @@ async def run_hackrx_query(
         
         index_stats = embed_service.get_index_stats()
         print(f"Index built successfully: {index_stats['index_size']} vectors, {index_stats['dimension']} dimensions")
+
+        # Step 3: Build Clause Graph from clauses
+        print("Building Clause Graph...")
+        graph_service.build_graph(clauses)
+        graph_service.save()
+        gstats = graph_service.get_stats()
+        print(f"Clause Graph built: {gstats['nodes']} nodes, {gstats['edges']} edges")
         
-        # Step 3: Answer questions using retrieval
+        # Step 4: Answer questions using retrieval (graph-aware configurable)
         print(f"Answering {len(request.questions)} questions...")
-        answers = retrieve_service.answer_questions(request.questions)
+        use_graph = True
+        if use_graph_header is not None:
+            # Accept values like: "true", "1", "false", "0"
+            s = use_graph_header.strip().lower()
+            use_graph = s in ("true", "1", "yes", "y")
+        answers = retrieve_service.answer_questions(request.questions, use_graph=use_graph)
         
         print("Query processing completed successfully")
         
@@ -86,11 +102,15 @@ async def get_status(services: dict = Depends(get_services)):
     try:
         retrieve_service = services["retrieve"]
         status = retrieve_service.check_index_status()
+        graph_service = services.get("graph") or ClauseGraphService()
+        graph_service.load()
+        gstats = graph_service.get_stats()
         
         return {
             "status": "operational",
             "index_status": status,
-            "ready_for_queries": status["ready_for_queries"]
+            "graph": gstats,
+            "ready_for_queries": status["ready_for_queries"] and gstats.get("nodes", 0) > 0
         }
     except Exception as e:
         return {

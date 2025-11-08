@@ -2,6 +2,7 @@ from typing import List, Dict, Any
 import google.generativeai as genai
 from app.services.embed import EmbeddingService
 from app.utils.config import Config
+from app.services.clause_graph import ClauseGraphService
 
 
 class RetrievalService:
@@ -12,6 +13,9 @@ class RetrievalService:
         self.config = Config()
         genai.configure(api_key=self.config.GEMINI_API_KEY)
         self.gen_model = genai.GenerativeModel(self.config.GEMINI_GEN_MODEL)
+        # Graph service (optional if not built yet)
+        self.graph_service = ClauseGraphService()
+        self.graph_service.load()
 
     def _generate_answer(self, question: str, clauses: List[Dict[str, Any]]) -> str:
         if not clauses:
@@ -34,16 +38,69 @@ class RetrievalService:
             # Fallback: return the best clause text
             return clauses[0]["text"]
 
-    def answer_question(self, question: str) -> str:
+    def _graph_expand_and_rerank(self, question: str, hits: List[Any], top_k: int = 5) -> List[Dict[str, Any]]:
+        """Expand FAISS hits via clause graph neighbors and rerank by combined score.
+
+        hits: List of tuples (clause_dict, sim_score)
+        returns: top clauses (dicts)
+        """
+        # Map of clause_id -> (clause_dict, sim)
+        hit_map: Dict[str, Any] = {}
+        for clause, sim in hits:
+            cid = clause.get("clause_id")
+            if cid:
+                hit_map[cid] = (clause, float(sim))
+
+        hit_ids = list(hit_map.keys())
+
+        # If graph not available, return top by sim only
+        if not self.graph_service.exists():
+            return [c for (c, _s) in hits[:top_k]]
+
+        # Expand one hop around hits focusing on key relations
+        neighbor_ids = self.graph_service.expand_from_hits(
+            hit_ids, k_hops=1, types=["Defines", "Overrides", "RefersTo"], max_nodes=20
+        )
+
+        # Gather neighbor clause dicts from metadata (linear scan acceptable for small sets)
+        neighbor_entries: Dict[str, Dict[str, Any]] = {}
+        for nid in neighbor_ids:
+            if nid in hit_map:
+                continue
+            for meta in self.embedding_service.metadata:
+                if meta.get("clause_id") == nid:
+                    neighbor_entries[nid] = meta
+                    break
+
+        # Build scoring pool
+        scored: List[Dict[str, Any]] = []
+        # include hits with sim.
+        for cid, (clause, sim) in hit_map.items():
+            graph_boost = self.graph_service.degree(cid)
+            score = 0.7 * sim + 0.3 * graph_boost
+            scored.append({"clause": clause, "score": score})
+        # include neighbors with zero sim but graph boost
+        for cid, clause in neighbor_entries.items():
+            graph_boost = self.graph_service.degree(cid)
+            score = 0.3 * graph_boost
+            scored.append({"clause": clause, "score": score})
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return [x["clause"] for x in scored[:top_k]]
+
+    def answer_question(self, question: str, use_graph: bool = True) -> str:
         try:
-            results = self.embedding_service.search_index(question, top_k=3)
-            top_clauses = [c for (c, _s) in results]
+            results = self.embedding_service.search_index(question, top_k=5)
+            if use_graph and self.graph_service.exists():
+                top_clauses = self._graph_expand_and_rerank(question, results, top_k=6)
+            else:
+                top_clauses = [c for (c, _s) in results][:6]
             return self._generate_answer(question, top_clauses)
         except Exception as e:
             return f"Error retrieving answer: {str(e)}"
 
-    def answer_questions(self, questions: List[str]) -> List[str]:
-        return [self.answer_question(q) for q in questions]
+    def answer_questions(self, questions: List[str], use_graph: bool = True) -> List[str]:
+        return [self.answer_question(q, use_graph=use_graph) for q in questions]
 
     def get_relevant_clauses(self, question: str, top_k: int = 3) -> List[Dict[str, Any]]:
         try:
